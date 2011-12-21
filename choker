@@ -1,0 +1,85 @@
+#!/usr/bin/env ruby
+
+require 'rubygems'
+require 'thor'
+require 'pry'
+
+class Choker < Thor
+  include Thor::Actions
+
+  desc 'throttle', 'limit up and down stream bandwidth system wide'
+  method_options :up => nil, :down => nil
+  def throttle
+    permission_check
+    unless options[:down].nil?
+      throttle_down options[:down].to_i
+    end
+
+    unless options[:up].nil?
+      throttle_up options[:up].to_i
+    end
+  end
+
+  desc 'unthrottle', 'remove bandwidth limits'
+  method_options :up => true, :down => true
+  def unthrottle
+    permission_check
+    if options[:down]
+      puts "Removing throttling on downstream"
+      `sudo ipfw delete 1`
+    end
+    if options[:up]
+      puts "Removing throttling on upstream"
+      `sudo ipfw delete 2` if options[:up]
+    end
+  end
+
+  desc 'disable', 'disable your network adapters to stop all traffic'
+  def disable
+    permission_check
+    adapters.each do |adapter|
+      `sudo ifconfig #{adapter} down`
+    end
+  end
+
+  desc 'enable', 're-enable your network adapters'
+  def enable
+    permission_check
+    adapters.each do |adapter|
+      `sudo ifconfig #{adapter} up`
+    end
+  end  
+
+  private
+
+  def adapters
+    `ifconfig`.scan(/^en[0-9]/)
+  end
+
+  def throttle_down(kbps)
+    puts "Throttling downstream to #{kbps}Kbytes/s"
+    `sudo ipfw pipe 1 config bw #{kbps}Kbytes/s`
+    `sudo ipfw add 1 pipe 1 tcp from any to me`
+  end
+
+  def throttle_up(kbps)
+    puts "Throttling upstream to #{kbps}Kbytes/s"
+    `sudo ipfw pipe 2 config bw #{kbps}Kbytes/s`
+    `sudo ipfw add 2 pipe 2 tcp from me to any`
+  end
+
+  def permission_check
+    unless got_root?
+      puts "You must be able to sudo to use this tool"
+      exit(1)
+    end
+  end
+
+
+
+  def got_root?
+    `sudo whoami`.strip == 'root'
+  end
+end
+
+Choker.start
